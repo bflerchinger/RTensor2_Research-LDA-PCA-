@@ -1,0 +1,178 @@
+---
+title: "ResearchLDA"
+author: "Brett Flerchinger"
+date: "2023-02-28"
+description: This code showcases the RTensor2 package.  The MNIST digits dataset is loaded in (images of handwritten digits along with an identifyer of which digit each is), then LDA is performed utilizing any transform available in the RTensor2 package.  1000 test images are used and a count is made for correctly identified images.  For use, change m to desired number of training images in line 26, then change transform if desired in lines 77, 102, 119, 124, 139, 148, and 148.
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(png)
+library(colorspace)
+library(rTensor)
+library(rTensor2)
+
+```
+
+
+
+```{r}
+library(dslabs)
+mnist <- read_mnist()
+m = 2000 #number of images in training set.  2K gives a runtime of a few minutes, 60K is max in MNIST, but will take several hours to run on most machines
+
+```
+
+
+```{r}
+# formats data into tensor
+
+C = rand_tensor(modes = c(32, m, 32), drop = FALSE)*0
+
+for(k in 1:m){
+  C[1:28,k,1:28] = as.tensor(matrix(mnist$train$images[k,], nrow=28))
+      
+}
+
+```
+
+
+
+```{r}
+#gets average matrix mu
+mu = rand_tensor(modes = c(32,32), drop = FALSE) *0
+dim(mu)
+
+for(k in 1:m){
+  
+  mu = mu + (C[,k,]@data)/m
+}
+max(mu@data)
+```
+
+
+
+```{r}
+#between class scatter
+mu_i = rand_tensor(modes = c(32,32), drop = FALSE) *0
+class = rand_tensor(modes = c(32,1,32), drop = FALSE)*0
+between = rand_tensor(modes = c(32,32,32), drop = FALSE)*0
+for(d in 0:9){
+  c = 0
+  mu_i = mu_i * 0
+  for(b in 1:m){
+    if(mnist$train$labels[b] == d){
+      mu_i = mu_i + C[,k,]@data
+      c = c + 1
+    }
+  }
+
+  mu_i = mu_i/c
+  diff = mu_i - mu #matrix for between class scatter
+  class[ ,1, ]= diff@data 
+  between = between + (c * tmult(class, t_tpose(class, "dwt"), "dwt")) #set to desired transform
+ 
+  
+}
+
+```
+
+
+```{r}
+#within class scatter
+within = rand_tensor(modes = c(32,32,32), drop = FALSE) * 0
+diff =  rand_tensor(modes = c(32,1,32), drop = FALSE)*0
+for(d in 0:9){
+  mu_i = mu_i*0
+  c = 0
+  for(k in 1:m){
+    if(mnist$train$labels[k] == d){
+      mu_i = mu_i + C[,k,]@data
+      c = c + 1
+    }
+  }
+  mu_i = mu_i/c
+  for(k in 1:m){ #subtract each matrix x_i from mu_i, add to sum
+    if(mnist$train$labels[k] == d){
+      diff[,1,] = C[,k,]@data - mu_i 
+      within = within + tmult(diff, t_tpose(diff, "dwt"), "dwt") #change to desired transform
+    }
+  
+  }
+  
+}
+
+```
+
+
+```{r}
+within  = within + .0001* rand_tensor(modes = c(32, 32, 32), drop = FALSE) #adds a very small amount of random noise so matrix won't be singular ever
+```
+
+
+
+```{r}
+ratio = tmult(tINVdwt(within),between, "dwt") #change transform twice in this line
+```
+
+
+```{r}
+eig = tEIG(ratio, "dwt") #change transform
+```
+
+```{r}
+tes = rand_tensor(modes = c(32, 1000, 32), drop = FALSE)*0
+
+for(k in 1:1000){
+  tes[1:28,k,1:28] = as.tensor(matrix(mnist$test$images[k,], nrow=28))
+}
+
+```
+
+
+```{r}
+Ubar = eig$P[,1:9,]
+Ubart = t_tpose(Ubar, "dwt") #change transform
+
+```
+
+
+
+
+
+```{r}
+testT = tmult(Ubart, tes, "dwt") #change transform
+trainT = tmult(Ubart, C, "dwt")  #change transform
+```
+
+
+
+
+
+```{r}
+counter = 0
+for(n in 1:1000){  #1000 test images
+  minimum = 999999
+  place = -1
+
+  for(k in 1:m){ #loops through all training images, selects min Frobenius norm
+    digitnorm = fnorm(testT[,n,]-trainT[,k,])
+    if(Re(digitnorm) < minimum){
+      minimum = Re(digitnorm)
+      place = k
+    } #end if
+  }#end inner for
+  if(mnist$test$labels[n] == mnist$train$labels[place]){
+    counter = counter + 1
+    
+  }#end if
+  
+}#end outer for
+counter # correct identifications out of 1000
+```
+
+
