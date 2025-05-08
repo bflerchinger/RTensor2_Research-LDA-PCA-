@@ -1,0 +1,200 @@
+---
+title: "PCA Image Compression"
+author: "Brett Flerchinger"
+date: "2022-11-16"
+description: Will perform image compression using principle component analysis.  Dataset is images of a scooter taken from various angles.  Each image has a singular value decomposition (SVD) taken, then SV's are cut off to the first k, specified on line 52.  The images are then reconstructed and displayed, with an option to save as a PNG file.  This process is done 3 different times for different transforms, the user can specify others if desired. NOTE: download Scooter file and place in same file location as this code.
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE) #NOTE: download Scooter file and place in same file location as this code.
+```
+
+```{r}
+library(png) 
+library(rTensor)
+library(rTensor2)
+
+library(png)
+library(colorspace)
+library(rTensor)
+library(rTensor2)
+
+XT = rand_tensor(modes = c(128,128,128)) * 0
+#NOTE: download Scooter file and place in same file location as this code.
+library(colorspace)
+for(i in 0:127){#read in images to tensor
+  dir = paste("Scooter/img_",as.character(i),".png", sep = "")  
+  img = as.tensor(as.double(readPNG(dir)))
+  XT_T = tperm(img,perm = c(128,1,128))
+  XT[,i,] = XT_T
+}
+
+```
+
+
+```{r}
+A = XT
+```
+
+
+```{r}
+cosSVD = tSVDdct(A)# utilizes 3 different transforms
+harSVD = tSVDdht(A)
+wSVD = tSVDdwt(A)
+
+```
+
+
+
+
+```{r}
+k = 30 #number of eigenvectors to keep: higher number gives more accurate images, but requires more space to store them.  Max is 128.
+U = cosSVD$U
+V = cosSVD$V
+S = cosSVD$S
+tV = t_tpose(V,"dct")
+
+Uk = rand_tensor(modes = c(128, k, 128), drop = FALSE) 
+Sk = rand_tensor(modes = c(k, k, 128), drop = FALSE)
+Vk = rand_tensor(modes = c(k, 128, 128), drop = FALSE)
+
+Uk = U[,1:k,]@data  # cut off eigenvectors after k
+
+Sk = S[1:k,1:k,]@data
+
+Vk = tV[1:k,,]@data
+
+```
+
+```{r}
+#repeat for harley
+Uh = harSVD$U
+Vh = harSVD$V
+Sh = harSVD$S
+tVh = t_tpose(Vh, "dht")
+
+Ukh = rand_tensor(modes = c(128, k, 128), drop = FALSE)
+Vkh = rand_tensor(modes = c(k, 128, 128), drop = FALSE)
+Skh = rand_tensor(modes = c(k, k, 128), drop = FALSE)
+
+Ukh = Uh[,1:k,]@data
+
+Skh = Sh[1:k,1:k,]@data
+
+Vkh = tVh[1:k,,]@data
+
+#repeat for wavelet
+Uw = wSVD$U
+Vw = wSVD$V
+Sw = wSVD$S
+tVw = t_tpose(Vw, "dwt")
+
+Ukw = rand_tensor(modes = c(128, k, 128), drop = FALSE)
+Vkw = rand_tensor(modes = c(k, 128, 128), drop = FALSE)
+Skw = rand_tensor(modes = c(k, k, 128), drop = FALSE)
+
+Ukw = Uw[,1:k,]@data
+
+Skw = Sw[1:k,1:k,]@data
+
+Vkw = tVw[1:k,,]@data
+```
+
+```{r}
+Uk = as.tensor(Uk)
+Vk = as.tensor(Vk)
+Sk = as.tensor(Sk)
+
+X = tmult(Uk, Sk,"dct") 
+
+X = tmult(X, Vk, "dct") #reconstruct image
+
+```
+
+```{r}
+fnorm(X-A)
+```
+
+
+
+```{r}
+Ukh = as.tensor(Ukh)
+Vkh = as.tensor(Vkh)
+Skh = as.tensor(Skh)
+
+Xh = tmult(Ukh, Skh,"dht") #reconstruct image
+
+Xh = tmult(Xh, Vkh, "dht")
+
+
+Ukw = as.tensor(Ukw)
+Vkw = as.tensor(Vkw)
+Skw = as.tensor(Skw)
+
+Xw = tmult(Ukw, Skw,"dwt") #reconstruct image
+
+Xw = tmult(Xw, Vkw, "dwt")
+```
+
+```{r}
+display = matrix(NA, nrow = 128, ncol = 128)
+
+display = Re(X[,1,]@data) #formatting for display
+
+
+displayh = matrix(NA, nrow = 128, ncol = 128)
+
+displayh = Re(Xh[,1,]@data) 
+
+displayw = matrix(NA, nrow = 128, ncol = 128)
+
+displayw = Re(Xw[,1,]@data) 
+
+```
+
+```{r}
+
+display <- pmax(display,0)
+
+display <- pmin(display, .9999)
+
+displayRast = as.raster(display)
+plot.new()
+rasterImage(displayRast, 0, 0, 1, 1) #image completion 2013, PCA
+#writePNG(display, "FourierScooter30.png")  #uncomment to save image as png if desired
+```
+
+
+
+
+```{r}
+
+displayh <- pmax(displayh,0)
+
+displayh <- pmin(displayh, .9999)
+
+displayRasth = as.raster(displayh)
+plot.new()
+rasterImage(displayRasth, 0, 0, 1, 1) #image completion 2013, PCA
+#writePNG(display, "WaveletScooter30.png") #uncomment to save image as png if desired
+```
+
+
+```{r}
+
+displayw <- pmax(displayw,0)
+
+displayw <- pmin(displayw, .9999)
+
+displayRastw = as.raster(displayw)
+plot.new()
+rasterImage(displayRastw, 0, 0, 1, 1) #image completion 2013, PCA
+#writePNG(display, "WalshScooter30.png") #uncomment to save image as png if desired
+```
+
+
+
+
+
+
